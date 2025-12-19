@@ -161,7 +161,7 @@ export default class PopupPage extends Component {
   };
 
   calcNeedsSync = sessions => {
-    const shouldShowCloudSync = getSettings("signedInEmail");
+    const shouldShowCloudSync = getSettings("webdavConnected");
     const lastSyncTime = getSettings("lastSyncTime");
     const removedQueue = getSettings("removedQueue");
     const includesAutoSaveToSync = getSettings("includesAutoSaveToSync");

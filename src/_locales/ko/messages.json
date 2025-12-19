@@ -507,10 +507,10 @@
     "message": "클라우드 동기화"
   },
   "enabledCloudSyncLabel": {
-    "message": "클라우드 동기화 활성화 (베타)"
+    "message": "Enable WebDAV sync (Beta)"
   },
   "enabledCloudSyncCaptionLabel": {
-    "message": "Google Drive에 세션을 저장하여 다른 장치와 동기화합니다."
+    "message": "Sync sessions through your WebDAV server. Credentials are stored locally."
   },
   "syncingLabel": {
     "message": "동기화 중"
@@ -528,7 +528,7 @@
     "message": "동기화 완료"
   },
   "signInRequiredLabel": {
-    "message": "Requires sign in for cloud sync."
+    "message": "WebDAV connection required for cloud sync."
   },
   "signInLabel": {
     "message": "로그인"
@@ -796,5 +796,44 @@
   },
   "copiedLabel": {
     "message": "복사됨."
+  },
+  "webdavUrlLabel": {
+    "message": "WebDAV folder URL"
+  },
+  "webdavUrlCaptionLabel": {
+    "message": "Use the full folder path where session files should be stored (e.g. https://example.com/remote.php/dav/files/user/TabSessionManager/)."
+  },
+  "webdavUsernameLabel": {
+    "message": "Username"
+  },
+  "webdavUsernameCaptionLabel": {
+    "message": "Basic authentication username."
+  },
+  "webdavPasswordLabel": {
+    "message": "Password"
+  },
+  "webdavPasswordCaptionLabel": {
+    "message": "Stored locally and sent only to your WebDAV server."
+  },
+  "webdavConnectLabel": {
+    "message": "Connect to WebDAV"
+  },
+  "webdavDisconnectLabel": {
+    "message": "Disconnect"
+  },
+  "webdavConnectedLabel": {
+    "message": "Connected to WebDAV."
+  },
+  "webdavDisconnectedLabel": {
+    "message": "Not connected."
+  },
+  "webdavConnectionErrorLabel": {
+    "message": "Unable to connect. Check the URL or credentials."
+  },
+  "webdavMissingConfigLabel": {
+    "message": "Set the WebDAV URL and username first."
+  },
+  "webdavPermissionErrorLabel": {
+    "message": "Allow access to your WebDAV host when prompted."
   }
 }

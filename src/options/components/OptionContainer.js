@@ -18,6 +18,9 @@ export default props => {
     }
 
     setSettings(id, value);
+    if (["webdavUrl", "webdavUsername", "webdavPassword"].includes(id)) {
+      setSettings("webdavConnected", false);
+    }
   };
 
   const handleCheckedChange = e => {
@@ -61,6 +64,18 @@ export default props => {
       optionForm = (
         <input
           type="text"
+          id={formId}
+          placeholder={props.placeholder}
+          onChange={handleValueChange}
+          defaultValue={getSettings(id)}
+        />
+      );
+      break;
+    case "password":
+      formId = id;
+      optionForm = (
+        <input
+          type="password"
           id={formId}
           placeholder={props.placeholder}
           onChange={handleValueChange}

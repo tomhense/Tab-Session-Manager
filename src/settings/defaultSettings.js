@@ -1,6 +1,6 @@
 import browser from "webextension-polyfill";
 import browserInfo from "browser-info";
-import SignInButton from "../options/components/SignInButton";
+import WebdavSyncSettings from "../options/components/WebdavSyncSettings";
 import CompressAllSessionsForm from "../options/components/CompressAllSessionsForm";
 
 const handleApplyDeviceNameButtonClick = () => {
@@ -287,8 +287,40 @@ export default [
         title: "enabledCloudSyncLabel",
         captions: ["enabledCloudSyncCaptionLabel"],
         type: "extra",
-        extraForm: SignInButton,
+        extraForm: WebdavSyncSettings,
         childElements: [
+          {
+            id: "webdavUrl",
+            title: "webdavUrlLabel",
+            captions: ["webdavUrlCaptionLabel"],
+            type: "text",
+            placeholder: "https://example.com/remote.php/dav/files/user/TabSessionManager/",
+            default: ""
+          },
+          {
+            id: "webdavUsername",
+            title: "webdavUsernameLabel",
+            captions: ["webdavUsernameCaptionLabel"],
+            type: "text",
+            placeholder: "username",
+            default: ""
+          },
+          {
+            id: "webdavPassword",
+            title: "webdavPasswordLabel",
+            captions: ["webdavPasswordCaptionLabel"],
+            type: "password",
+            placeholder: "password",
+            default: ""
+          },
+          {
+            id: "webdavConnected",
+            title: "",
+            captions: [""],
+            type: "none",
+            default: false,
+            shouldShow: false
+          },
           {
             id: "enabledAutoSync",
             title: "enabledAutoSyncLabel",

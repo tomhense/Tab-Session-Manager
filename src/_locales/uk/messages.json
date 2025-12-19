@@ -507,10 +507,10 @@
     "message": "Хмарна синхронізація"
   },
   "enabledCloudSyncLabel": {
-    "message": "Увімкнути хмарну синхронізацію (бета-версія)"
+    "message": "Enable WebDAV sync (Beta)"
   },
   "enabledCloudSyncCaptionLabel": {
-    "message": "Збережіть сесії в Google Drive™ та синхронізуйте їх з іншими комп'ютерами."
+    "message": "Sync sessions through your WebDAV server. Credentials are stored locally."
   },
   "syncingLabel": {
     "message": "Синхронізація"
@@ -528,7 +528,7 @@
     "message": "Синхронізацію завершено."
   },
   "signInRequiredLabel": {
-    "message": "Вимагає авторизації для хмарної синхронізації."
+    "message": "WebDAV connection required for cloud sync."
   },
   "signInLabel": {
     "message": "Увійти"
@@ -796,5 +796,44 @@
   },
   "copiedLabel": {
     "message": "Скопійовано."
+  },
+  "webdavUrlLabel": {
+    "message": "WebDAV folder URL"
+  },
+  "webdavUrlCaptionLabel": {
+    "message": "Use the full folder path where session files should be stored (e.g. https://example.com/remote.php/dav/files/user/TabSessionManager/)."
+  },
+  "webdavUsernameLabel": {
+    "message": "Username"
+  },
+  "webdavUsernameCaptionLabel": {
+    "message": "Basic authentication username."
+  },
+  "webdavPasswordLabel": {
+    "message": "Password"
+  },
+  "webdavPasswordCaptionLabel": {
+    "message": "Stored locally and sent only to your WebDAV server."
+  },
+  "webdavConnectLabel": {
+    "message": "Connect to WebDAV"
+  },
+  "webdavDisconnectLabel": {
+    "message": "Disconnect"
+  },
+  "webdavConnectedLabel": {
+    "message": "Connected to WebDAV."
+  },
+  "webdavDisconnectedLabel": {
+    "message": "Not connected."
+  },
+  "webdavConnectionErrorLabel": {
+    "message": "Unable to connect. Check the URL or credentials."
+  },
+  "webdavMissingConfigLabel": {
+    "message": "Set the WebDAV URL and username first."
+  },
+  "webdavPermissionErrorLabel": {
+    "message": "Allow access to your WebDAV host when prompted."
   }
 }

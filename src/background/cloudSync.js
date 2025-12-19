@@ -3,7 +3,7 @@ import log from "loglevel";
 import { getSettings, setSettings } from "../settings/settings";
 import getSessions from "./getSessions";
 import { listFiles, uploadSession, downloadFile, deleteFile } from "./cloudAPIs";
-import { refreshAccessToken } from "./cloudAuth";
+import { getWebdavClient } from "./cloudAuth";
 import { saveSession, updateSession } from "./save";
 import { showSyncErrorBadge, hideBadge } from "./setBadge";
 
@@ -104,57 +104,63 @@ export const getSyncStatus = () => {
 let isSyncing = false;
 export const syncCloud = async () => {
   if (isSyncing) return;
+  if (!getSettings("webdavConnected")) {
+    updateSyncStatus(syncStatus.signInRequired);
+    showSyncErrorBadge();
+    return;
+  }
+
   isSyncing = true;
   log.log(logDir, "syncCloud()");
   hideBadge();
 
   updateSyncStatus(syncStatus.pending);
-  const files = await listFiles().catch(e => null);
-  if (files === null) {
-    log.error(logDir, "syncCloud() listFiles");
+
+  try {
+    const files = await listFiles();
+    const sessions = (await getSessions()).filter(session => !session.tag.includes("temp"));
+    const removedQueue = getSettings("removedQueue") || [];
+
+    const lastSyncTime = getSettings("lastSyncTime") || 0;
+    const currentTime = Date.now();
+
+    const shouldRemoveFiles = getShouldRemoveFiles(files, sessions, removedQueue);
+    const shouldDownloadFiles = getShouldDownloadFiles(files, sessions, shouldRemoveFiles);
+    const shouldUploadSessions = getShouldUploadSessions(files, sessions, lastSyncTime);
+
+    for (const [index, file] of shouldDownloadFiles.entries()) {
+      updateSyncStatus(syncStatus.download, index + 1, shouldDownloadFiles.length);
+      const downloadedSession = await downloadFile(file.id);
+      const isUpdate = sessions.some(session => session.id === downloadedSession.id);
+      if (isUpdate) updateSession(downloadedSession, true, false, true);
+      else saveSession(downloadedSession, true, true);
+    }
+
+    for (const [index, session] of shouldUploadSessions.entries()) {
+      updateSyncStatus(syncStatus.upload, index + 1, shouldUploadSessions.length);
+      await uploadSession(session);
+    }
+
+    for (const [index, file] of shouldRemoveFiles.entries()) {
+      updateSyncStatus(syncStatus.delete, index + 1, shouldRemoveFiles.length);
+      await deleteFile(file.id);
+    }
+
+    setSettings("lastSyncTime", currentTime);
+    setSettings("removedQueue", []);
+    updateSyncStatus(syncStatus.complete);
+  } catch (e) {
+    log.error(logDir, "syncCloud()", e);
+    updateSyncStatus(syncStatus.signInRequired);
+    showSyncErrorBadge();
+  } finally {
     isSyncing = false;
     updateSyncStatus(syncStatus.none);
-    return;
   }
-  const sessions = (await getSessions()).filter(session => !session.tag.includes("temp"));
-  const removedQueue = getSettings("removedQueue") || [];
-
-  const lastSyncTime = getSettings("lastSyncTime") || 0;
-  const currentTime = Date.now();
-
-  const shouldRemoveFiles = getShouldRemoveFiles(files, sessions, removedQueue);
-  const shouldDownloadFiles = getShouldDownloadFiles(files, sessions, shouldRemoveFiles);
-  const shouldUploadSessions = getShouldUploadSessions(files, sessions, lastSyncTime);
-
-  for (const [index, file] of shouldDownloadFiles.entries()) {
-    updateSyncStatus(syncStatus.download, index + 1, shouldDownloadFiles.length);
-    const downloadedSession = await downloadFile(file.id);
-    const isUpdate = sessions.some(session => session.id === downloadedSession.id);
-    if (isUpdate) updateSession(downloadedSession, true, false, true);
-    else saveSession(downloadedSession, true, true);
-  }
-
-  for (const [index, session] of shouldUploadSessions.entries()) {
-    updateSyncStatus(syncStatus.upload, index + 1, shouldUploadSessions.length);
-    const sameIdFile = files.find(file => file.name === session.id);
-    if (sameIdFile) await uploadSession(session, sameIdFile.id);
-    else await uploadSession(session);
-  }
-
-  for (const [index, file] of shouldRemoveFiles.entries()) {
-    updateSyncStatus(syncStatus.delete, index + 1, shouldRemoveFiles.length);
-    await deleteFile(file.id);
-  }
-
-  setSettings("lastSyncTime", currentTime);
-  setSettings("removedQueue", []);
-  isSyncing = false;
-  updateSyncStatus(syncStatus.complete);
-  updateSyncStatus(syncStatus.none);
 };
 
 export const pushRemovedQueue = id => {
-  const isSignedIn = getSettings("signedInEmail");
+  const isSignedIn = getSettings("webdavConnected");
   if (!isSignedIn) return;
 
   log.log(logDir, "pushRemovedQueue()", id);
@@ -165,7 +171,7 @@ export const pushRemovedQueue = id => {
 
 let autoSyncTimer;
 export const syncCloudAuto = () => {
-  const isLoggedIn = getSettings("signedInEmail");
+  const isLoggedIn = getSettings("webdavConnected");
   const enabledAutoSync = getSettings("enabledAutoSync");
   if (!(isLoggedIn && enabledAutoSync)) return;
 
@@ -173,11 +179,10 @@ export const syncCloudAuto = () => {
   clearTimeout(autoSyncTimer);
   autoSyncTimer = setTimeout(async () => {
     try {
-      //Check sign in required
-      await refreshAccessToken(false);
+      await getWebdavClient();
       syncCloud();
     } catch (e) {
-      log.error(logDir, "syncCloudAuto()", "Sign in Required");
+      log.error(logDir, "syncCloudAuto()", "Connection Required");
       updateSyncStatus(syncStatus.signInRequired);
       showSyncErrorBadge();
     }

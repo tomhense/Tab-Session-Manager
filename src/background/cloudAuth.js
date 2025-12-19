@@ -1,182 +1,113 @@
-import browser from "webextension-polyfill";
 import log from "loglevel";
-import { clientId, clientSecret } from "../credentials";
 import { getSettings, setSettings } from "../settings/settings";
 
 const logDir = "background/cloudAuth";
 
-export const signInGoogle = async () => {
-  log.log(logDir, "signInGoogle()");
+const buildError = (code, message) => {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+};
+
+const normalizeBaseUrl = rawUrl => {
+  const trimmedUrl = rawUrl?.trim();
+  if (!trimmedUrl) throw buildError("missing_config", "WebDAV URL is empty");
+
+  let normalizedUrl;
   try {
-    const authCode = await getAuthCode();
-    const { accessToken, expiresIn, refreshToken } = await getRefreshTokens(authCode);
-    const email = await getEmail(accessToken);
-    setSettings("signedInEmail", email);
-    setSettings("accessToken", accessToken);
-    setSettings("refreshToken", refreshToken);
-    setTokenExpiration(expiresIn);
-    setSettings("lastSyncTime", 0);
-    setSettings("removedQueue", []);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-export const signOutGoogle = async () => {
-  log.log(logDir, "signOutGoogle()");
-  try {
-    const accessToken = getSettings("accessToken");
-    const refreshToken = getSettings("refreshToken");
-    revokeToken(accessToken);
-    revokeToken(refreshToken);
-    setSettings("signedInEmail", "");
-    setSettings("accessToken", "");
-    setSettings("refreshToken", "");
-    setSettings("lastSyncTime", 0);
-    setSettings("removedQueue", []);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const getAuthCode = async (email = "", shouldShowLogin = true) => {
-  log.log(logDir, "getAuthCode()");
-  const scopes = [
-    "https://www.googleapis.com/auth/drive.appfolder",
-    "https://www.googleapis.com/auth/userinfo.email"
-  ];
-  const redirectUri = browser.identity.getRedirectURL();
-  const authURL =
-    "https://accounts.google.com/o/oauth2/v2/auth" +
-    `?client_id=${clientId}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&scope=${encodeURIComponent(scopes.join(" "))}` +
-    `&access_type=offline` +
-    `&prompt=consent` +
-    (email && `&login_hint=${email}`);
-
-  const redirectedURL = await browser.identity.launchWebAuthFlow({
-    url: authURL,
-    interactive: shouldShowLogin
-    // interactiveについて
-    // ユーザが手動操作したとき: true 必要に応じてログインプロンプトが表示される
-    // 自動同期時: false 手動ログインが必要な場合はサイレントに終了しエラーを返す
-  }).catch(async e => {
-    log.error(logDir, "getAuthCode()", e);
-    throw new Error();
-  });
-
-  const params = new URL(redirectedURL.replace("#", "?")).searchParams;
-  if (params.has("error")) {
-    log.error(logDir, "getAuthCode()", params.get("error"));
-    throw new Error();
+    normalizedUrl = new URL(trimmedUrl).toString();
+  } catch (e) {
+    throw buildError("invalid_config", "WebDAV URL is invalid");
   }
 
-  return params.get("code");
+  if (!normalizedUrl.endsWith("/")) normalizedUrl += "/";
+  return normalizedUrl;
 };
 
-const getRefreshTokens = async authCode => {
-  log.log(logDir, "getRefreshTokens()");
-  const url = "https://www.googleapis.com/oauth2/v4/token";
-  const params = {
-    client_id: clientId,
-    client_secret: clientSecret,
-    code: authCode,
-    grant_type: "authorization_code",
-    redirect_uri: browser.identity.getRedirectURL()
+const encodeBasicAuth = (username, password) => {
+  // Support non-ASCII credentials by encoding into UTF-8 before btoa.
+  const credentials = `${username || ""}:${password || ""}`;
+  const utf8Credentials = unescape(encodeURIComponent(credentials));
+  return btoa(utf8Credentials);
+};
+
+export const getWebdavConfig = () => {
+  const url = getSettings("webdavUrl") || "";
+  const username = getSettings("webdavUsername") || "";
+  const password = getSettings("webdavPassword") || "";
+
+  return { url, username, password };
+};
+
+const ensureWebdavConfig = config => {
+  if (!config.url) throw buildError("missing_config", "WebDAV URL is empty");
+  if (!config.username) throw buildError("missing_config", "WebDAV username is empty");
+};
+
+const ensureWebdavDirectory = async (baseUrl, headers) => {
+  const probeHeaders = {
+    ...headers,
+    Depth: "0"
   };
-
-  try {
-    const response = await fetch(url, { method: "POST", body: JSON.stringify(params) });
-    const result = await response.json();
-
-    return {
-      accessToken: result.access_token,
-      expiresIn: result.expires_in,
-      refreshToken: result.refresh_token
-    };
-  }
-  catch (e) {
-    log.error(logDir, "getRefreshTokens()", e);
-    throw new Error();
-  }
-};
-
-const getAccessToken = async refreshToken => {
-  log.log(logDir, "getAccessToken()");
-  const url = "https://www.googleapis.com/oauth2/v4/token";
-  const params = {
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: "refresh_token",
-    refresh_token: refreshToken
+  const response = await fetch(baseUrl, { method: "PROPFIND", headers: probeHeaders });
+  if (response.status === 404) {
+    const createRes = await fetch(baseUrl, { method: "MKCOL", headers });
+    if (!createRes.ok && createRes.status !== 405) {
+      throw buildError("create_failed", `Failed to create WebDAV directory (${createRes.status})`);
+    }
+    return;
   }
 
-  try {
-    const response = await fetch(url, { method: "POST", body: JSON.stringify(params) });
-    const result = await response.json();
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
+  }
 
-    return {
-      accessToken: result.access_token,
-      expiresIn: result.expires_in
-    };
-  } catch (e) {
-    log.error(logDir, "getAccessToken()", e.response);
-    throw new Error();
+  if (!response.ok) {
+    throw buildError("unreachable", `WebDAV directory probe failed (${response.status})`);
   }
 };
 
-const getEmail = async accessToken => {
-  const url = "https://www.googleapis.com/oauth2/v1/userinfo" + `?access_token=${accessToken}`;
-  try {
-    const response = await fetch(url);
-    const result = await response.json();
-    return result.email;
-  } catch (e) {
-    log.error(logDir, "getEmail()", e);
-    throw new Error();
-  }
-};
-
-const setTokenExpiration = async expirationSec => {
-  const currentTimeMs = Date.now();
-  setSettings("tokenExpiration", currentTimeMs + expirationSec * 1000);
-};
-
-export const refreshAccessToken = async (shouldShowLogin = true) => {
-  const currentAccessToken = getSettings("accessToken");
-  const tokenExpiration = getSettings("tokenExpiration");
-  if (Date.now() < tokenExpiration) return currentAccessToken;
-
-  log.log(logDir, "refreshAccessToken()");
-  const refreshToken = getSettings("refreshToken");
-
-  try {
-    const { accessToken, expiresIn } = await getAccessToken(refreshToken);
-    setSettings("accessToken", accessToken);
-    setTokenExpiration(expiresIn);
-    return accessToken;
-  } catch (e) {
-    const currentEmail = getSettings("signedInEmail");
-    const authCode = await getAuthCode(currentEmail, shouldShowLogin).catch(e => { throw new Error(); });
-    const { accessToken, expiresIn, refreshToken } = await getRefreshTokens(authCode);
-    const email = await getEmail(accessToken);
-    setSettings("signedInEmail", email);
-    setSettings("accessToken", accessToken);
-    setSettings("refreshToken", refreshToken);
-    setTokenExpiration(expiresIn);
-    return accessToken;
-  }
-};
-
-const revokeToken = async token => {
-  if (!token) return;
-  const params = {
-    token: token
+export const getWebdavClient = async () => {
+  log.log(logDir, "getWebdavClient()");
+  const config = getWebdavConfig();
+  ensureWebdavConfig(config);
+  const baseUrl = normalizeBaseUrl(config.url);
+  const headers = {
+    Authorization: `Basic ${encodeBasicAuth(config.username, config.password)}`
   };
-  await fetch("https://oauth2.googleapis.com/revoke", { method: "POST", body: JSON.stringify(params) })
+  await ensureWebdavDirectory(baseUrl, headers);
 
+  return {
+    baseUrl,
+    headers,
+    username: config.username
+  };
+};
+
+export const connectWebdav = async () => {
+  log.log(logDir, "connectWebdav()");
+  try {
+    const { baseUrl, headers, username } = await getWebdavClient();
+    // Touch the index file to ensure we can read/write within the directory.
+    const indexUrl = `${baseUrl}index.json`;
+    await fetch(indexUrl, { method: "HEAD", headers }).catch(() => { });
+
+    await setSettings("webdavConnected", true);
+    await setSettings("signedInEmail", username || baseUrl);
+    await setSettings("lastSyncTime", 0);
+    await setSettings("removedQueue", []);
+    return true;
+  } catch (e) {
+    log.error(logDir, "connectWebdav()", e);
+    throw e;
+  }
+};
+
+export const disconnectWebdav = async () => {
+  log.log(logDir, "disconnectWebdav()");
+  await setSettings("webdavConnected", false);
+  await setSettings("signedInEmail", "");
+  await setSettings("lastSyncTime", 0);
+  await setSettings("removedQueue", []);
+  return true;
 };

@@ -1,99 +1,131 @@
 import log from "loglevel";
-import { refreshAccessToken } from "./cloudAuth";
+import { getWebdavClient } from "./cloudAuth";
 import { sliceTextByBytes } from "../common/sliceTextByBytes";
 
 const logDir = "background/cloudAPIs";
+const indexFileName = "index.json";
 
-export const listFiles = async (pageToken = "") => {
-  log.log(logDir, "listFiles()");
-  const accessToken = await refreshAccessToken();
-  const params = {
-    spaces: "appDataFolder",
-    fields: [
-      "files/id",
-      "files/name",
-      "files/appProperties/lastEditedTime",
-      "files/appProperties/tag",
-      "nextPageToken"
-    ].join(","),
-    pageSize: 1000,
-    pageToken: pageToken
+const buildError = (code, message) => {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+};
+
+const getFileUrl = (baseUrl, fileId) => {
+  return `${baseUrl}${encodeURIComponent(fileId)}.json`;
+};
+
+const normalizeMetadata = file => {
+  const appProperties = file.appProperties || {};
+  const tag = Array.isArray(appProperties.tag) ? appProperties.tag : (appProperties.tag ? appProperties.tag.split(",") : []);
+  const lastEditedTime = appProperties.lastEditedTime || 0;
+  return {
+    ...file,
+    appProperties: {
+      ...appProperties,
+      lastEditedTime,
+      tag
+    }
+  };
+};
+
+const readIndex = async (baseUrl, headers) => {
+  const url = `${baseUrl}${indexFileName}`;
+  const response = await fetch(url, { headers, method: "GET" });
+
+  if (response.status === 404) {
+    return [];
   }
-  const url = `https://www.googleapis.com/drive/v3/files?${new URLSearchParams(params)}`;
-  const headers = { Authorization: `Bearer ${accessToken}` }
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
+  }
+  if (!response.ok) {
+    throw buildError("unreachable", `Failed to read WebDAV index (${response.status})`);
+  }
 
-  try {
-    const response = await fetch(url, { headers: headers });
-    const result = await response.json();
+  const result = await response.json();
+  const files = Array.isArray(result.files) ? result.files : [];
+  return files.map(normalizeMetadata);
+};
 
-    let files = result.files;
-    if (result.nextPageToken) files = files.concat(await listFiles(result.nextPageToken));
-    files = files.map(file => {
-      file.appProperties.tag = file.appProperties?.tag?.split(",") || [];
-      return file;
-    });
-    log.log(logDir, "=>listFiles()", files);
-    return files;
-  } catch (e) {
-    log.error(logDir, "listFiles()", e);
-    throw new Error();
+const writeIndex = async (baseUrl, headers, files) => {
+  const url = `${baseUrl}${indexFileName}`;
+  const body = JSON.stringify({ files, updatedAt: Date.now() });
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
+  }
+  if (!response.ok) {
+    throw buildError("write_failed", `Failed to update WebDAV index (${response.status})`);
   }
 };
 
-export const uploadSession = async (session, fileId = "") => {
-  log.log(logDir, "uploadSession()", session, fileId);
-  const metadata = {
-    name: session.id,
-    appProperties: {
-      id: session.id,
-      name: sliceTextByBytes(session.name, 115), // limited 124bytes
-      date: session.date,
-      lastEditedTime: session.lastEditedTime,
-      tag: sliceTextByBytes(session.tag.join(","), 115),
-      tabsNumber: session.tabsNumber,
-      windowsNumber: session.windowsNumber
-    },
-    mimeType: "application/json"
-  };
-  if (!fileId) metadata.parents = ["appDataFolder"];
-  const file = new Blob([JSON.stringify(session)], { type: "application/json" });
-  const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-  form.append("file", file);
+export const listFiles = async () => {
+  log.log(logDir, "listFiles()");
+  const { baseUrl, headers } = await getWebdavClient();
+  const files = await readIndex(baseUrl, headers);
+  log.log(logDir, "=>listFiles()", files);
+  return files;
+};
 
-  const accessToken = await refreshAccessToken();
-  const init = {
-    method: fileId ? "PATCH" : "POST",
-    headers: new Headers({ Authorization: "Bearer " + accessToken }),
-    body: form
-  };
-  const url = `https://www.googleapis.com/upload/drive/v3/files${fileId ? `/${fileId}` : ""}?uploadType=multipart`;
+const buildMetadata = session => ({
+  id: session.id,
+  name: session.id,
+  appProperties: {
+    id: session.id,
+    name: sliceTextByBytes(session.name, 115),
+    date: session.date,
+    lastEditedTime: session.lastEditedTime,
+    tag: session.tag,
+    tabsNumber: session.tabsNumber,
+    windowsNumber: session.windowsNumber
+  },
+  mimeType: "application/json"
+});
 
-  const result = await fetch(url, init).catch(e => {
-    log.error(logDir, "uploadSession()", e);
+export const uploadSession = async session => {
+  log.log(logDir, "uploadSession()", session);
+  const { baseUrl, headers } = await getWebdavClient();
+  const fileUrl = getFileUrl(baseUrl, session.id);
+  const response = await fetch(fileUrl, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(session)
   });
-  const resultJson = await result.json();
-  if (resultJson.error) log.error(logDir, "uploadSession()", resultJson);
-  log.log(logDir, "=>uploadSession()", resultJson);
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
+  }
+  if (!response.ok) {
+    throw buildError("write_failed", `Failed to upload session (${response.status})`);
+  }
+
+  const metadata = buildMetadata(session);
+  const files = await readIndex(baseUrl, headers);
+  const filteredFiles = files.filter(file => file.id !== metadata.id && file.name !== metadata.name);
+  await writeIndex(baseUrl, headers, filteredFiles.concat(metadata));
 };
 
 export const downloadFile = async fileId => {
   log.log(logDir, "downloadFile()", fileId);
-  const accessToken = await refreshAccessToken();
-  const params = { alt: "media" };
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?${new URLSearchParams(params)}`;
-  const headers = { Authorization: `Bearer ${accessToken}` };
+  const { baseUrl, headers } = await getWebdavClient();
+  const url = getFileUrl(baseUrl, fileId);
+  const response = await fetch(url, { headers });
 
-  try {
-    const response = await fetch(url, { headers: headers })
-    const result = await response.json();
-
-    log.log(logDir, "=>downloadFile()", result);
-    return result;
-  } catch (e) {
-    log.error(logDir, "downloadFile", e);
-    throw new Error();
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
   }
+  if (!response.ok) {
+    throw buildError("unreachable", `Failed to download session (${response.status})`);
+  }
+
+  const result = await response.json();
+  log.log(logDir, "=>downloadFile()", result);
+  return result;
 };
 
 export const deleteAllFiles = async () => {
@@ -106,14 +138,18 @@ export const deleteAllFiles = async () => {
 
 export const deleteFile = async fileId => {
   log.log(logDir, "deleteFiles()", fileId);
-  const accessToken = await refreshAccessToken();
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}`;
-  const headers = { Authorization: `Bearer ${accessToken}` };
+  const { baseUrl, headers } = await getWebdavClient();
+  const url = getFileUrl(baseUrl, fileId);
+  const response = await fetch(url, { method: "DELETE", headers });
 
-  try {
-    await fetch(url, { method: "DELETE", headers: headers });
-  } catch (e) {
-    log.error(logDir, "deleteFiles()", e.response);
-    throw new Error();
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
   }
+  if (!response.ok && response.status !== 404) {
+    throw buildError("delete_failed", `Failed to delete session (${response.status})`);
+  }
+
+  const files = await readIndex(baseUrl, headers);
+  const filteredFiles = files.filter(file => file.id !== fileId && file.name !== fileId);
+  await writeIndex(baseUrl, headers, filteredFiles);
 };

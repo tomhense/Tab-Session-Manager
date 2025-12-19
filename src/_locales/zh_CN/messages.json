@@ -507,10 +507,10 @@
     "message": "云同步"
   },
   "enabledCloudSyncLabel": {
-    "message": "启用云同步（Beta）"
+    "message": "Enable WebDAV sync (Beta)"
   },
   "enabledCloudSyncCaptionLabel": {
-    "message": "保存会话到 Google Drive™ 并与其它计算机同步。"
+    "message": "Sync sessions through your WebDAV server. Credentials are stored locally."
   },
   "syncingLabel": {
     "message": "正在同步"
@@ -528,7 +528,7 @@
     "message": "同步完成。"
   },
   "signInRequiredLabel": {
-    "message": "云同步需要登录使用。"
+    "message": "WebDAV connection required for cloud sync."
   },
   "signInLabel": {
     "message": "登录"
@@ -796,5 +796,44 @@
   },
   "copiedLabel": {
     "message": "已复制"
+  },
+  "webdavUrlLabel": {
+    "message": "WebDAV folder URL"
+  },
+  "webdavUrlCaptionLabel": {
+    "message": "Use the full folder path where session files should be stored (e.g. https://example.com/remote.php/dav/files/user/TabSessionManager/)."
+  },
+  "webdavUsernameLabel": {
+    "message": "Username"
+  },
+  "webdavUsernameCaptionLabel": {
+    "message": "Basic authentication username."
+  },
+  "webdavPasswordLabel": {
+    "message": "Password"
+  },
+  "webdavPasswordCaptionLabel": {
+    "message": "Stored locally and sent only to your WebDAV server."
+  },
+  "webdavConnectLabel": {
+    "message": "Connect to WebDAV"
+  },
+  "webdavDisconnectLabel": {
+    "message": "Disconnect"
+  },
+  "webdavConnectedLabel": {
+    "message": "Connected to WebDAV."
+  },
+  "webdavDisconnectedLabel": {
+    "message": "Not connected."
+  },
+  "webdavConnectionErrorLabel": {
+    "message": "Unable to connect. Check the URL or credentials."
+  },
+  "webdavMissingConfigLabel": {
+    "message": "Set the WebDAV URL and username first."
+  },
+  "webdavPermissionErrorLabel": {
+    "message": "Allow access to your WebDAV host when prompted."
   }
 }

@@ -31,16 +31,10 @@ The TSM uses external services in the following cases:
 
 ### When using the "Cloud sync" function
 
-If you enable "Cloud sync" function, you can sync session data between different computers using Google Drive.  
+If you enable "Cloud sync" function, you can sync session data between different computers using your own WebDAV server.  
 In that case,
-- TSM saves Google login information (email address) on local storage.
-- TSM saves session data in the Google Drive App Folder. This data cannot be accessed by other apps or us.
-
-TSM uses Google APIs in accordance with Google API policies.  
-[Google API User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)
-
-Please refer to the following link for Google's privacy policy.  
-[Google Privacy Policy](https://policies.google.com/privacy)
+- TSM saves the WebDAV endpoint and credentials on local storage.
+- TSM saves session data and an index file in the WebDAV folder you specify. This data cannot be accessed by other apps or us.
 
 ### When using the "Import URL list" function
 

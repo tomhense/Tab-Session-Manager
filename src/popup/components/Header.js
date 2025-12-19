@@ -62,7 +62,7 @@ export default props => {
     });
   };
 
-  const shouldShowCloudSync = getSettings("signedInEmail");
+  const shouldShowCloudSync = getSettings("webdavConnected");
   const syncError = syncStatus.status === "signInRequired";
 
   return (
