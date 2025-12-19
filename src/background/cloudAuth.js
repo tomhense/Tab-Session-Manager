@@ -88,9 +88,16 @@ export const connectWebdav = async () => {
   log.log(logDir, "connectWebdav()");
   try {
     const { baseUrl, headers, username } = await getWebdavClient();
-    // Touch the index file to ensure we can read/write within the directory.
+    // Ensure the index file exists so first sync does not fail with 404.
     const indexUrl = `${baseUrl}index.json`;
-    await fetch(indexUrl, { method: "HEAD", headers }).catch(() => { });
+    const headRes = await fetch(indexUrl, { method: "HEAD", headers }).catch(() => null);
+    if (!headRes || headRes.status === 404) {
+      await fetch(indexUrl, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ files: [], updatedAt: Date.now() })
+      });
+    }
 
     await setSettings("webdavConnected", true);
     await setSettings("signedInEmail", username || baseUrl);

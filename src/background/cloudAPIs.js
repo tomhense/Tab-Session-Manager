@@ -34,6 +34,7 @@ const readIndex = async (baseUrl, headers) => {
   const response = await fetch(url, { headers, method: "GET" });
 
   if (response.status === 404) {
+    await writeIndex(baseUrl, headers, []);
     return [];
   }
   if (response.status === 401 || response.status === 403) {
