@@ -2,6 +2,7 @@ import browser from "webextension-polyfill";
 import browserInfo from "browser-info";
 import WebdavSyncSettings from "../options/components/WebdavSyncSettings";
 import CompressAllSessionsForm from "../options/components/CompressAllSessionsForm";
+import { isEnabledTabGroups, handleSaveTabGroupsChange } from "../common/tabGroups";
 
 const handleApplyDeviceNameButtonClick = () => {
   const res = confirm(browser.i18n.getMessage("applyDeviceNameConfirmLabel"));
@@ -60,16 +61,13 @@ export default [
     category: "saveLabel",
     elements: [
       {
-        id: "saveTabGroups",
+        id: "saveTabGroupsV2",
         title: "saveTabGroupsLabel",
         captions: ["saveTabGroupsCaptionLabel"],
-        link: {
-          href: "https://chrome.google.com/webstore/detail/aghdiknflpelpkepifoplhodcnfildao/",
-          text: "Save Tab Groups for Tab Session Manager"
-        },
         type: "checkbox",
-        default: false,
-        shouldShow: browserInfo().name == "Chrome" && browserInfo().version >= 89,
+        default: browserInfo().name == "Firefox",
+        shouldShow: isEnabledTabGroups,
+        onChange: handleSaveTabGroupsChange
       },
       {
         id: "ifSavePrivateWindow",
@@ -246,7 +244,7 @@ export default [
         title: "shouldTrackNewWindowLabel",
         captions: ["shouldTrackNewWindowCaptionLabel"],
         type: "checkbox",
-        default: true,
+        default: true
       }
     ]
   },
@@ -265,7 +263,7 @@ export default [
             title: "individualBackupLabel",
             captions: ["individualBackupCaptionLabel"],
             type: "checkbox",
-            default: true,
+            default: true
           },
           {
             id: "backupFolder",
@@ -482,7 +480,7 @@ export default [
         captions: ["isShowOpenButtonsCaptionLabel"],
         type: "checkbox",
         default: true
-      },
+      }
     ]
   },
   {

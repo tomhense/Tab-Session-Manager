@@ -32,9 +32,6 @@ Support Tab Session Manager by [becoming a sponsor](https://www.patreon.com/join
 **[Session Compressor](https://tab-session-manager.sienori.com/compressor/index.html)**  
 A tool for compressing sessions created by Tab Session Manager
 
-**[Save Tab Groups for Tab Session Manager](https://chrome.google.com/webstore/detail/aghdiknflpelpkepifoplhodcnfildao)**  
-Additional extension for saving tab groups in Tab Session Manager for Chrome
-
 ## Translation
 
 You can contribute by translating Tab Session Manager on **[Crowdin](https://crowdin.com/project/tab-session-manager)**.
@@ -43,12 +40,14 @@ You can contribute by translating Tab Session Manager on **[Crowdin](https://cro
 
 > Required: Node 18.19.1, npm 10.2.4
 
-1. Clone the repository `git clone https://github.com/sienori/Tab-Session-Manager`  
-2. Create the file `src/credentials.js`  
-  ```src/credentials.js
-  export const clientId = "xxx"
-  export const clientSecret = "xxx"
-  ```
+1. Clone the repository `git clone https://github.com/sienori/Tab-Session-Manager`
+2. Create the file `src/credentials.js`
+
+```src/credentials.js
+export const clientId = "xxx"
+export const clientSecret = "xxx"
+```
+
 3. Run `npm install`
 4. Run `npm run watch-dev`
 

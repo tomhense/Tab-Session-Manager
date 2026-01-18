@@ -8,12 +8,10 @@ import { returnReplaceParameter } from "./replace.js";
 import ignoreUrls from "./ignoreUrls";
 import { pushRemovedQueue, syncCloudAuto } from "./cloudSync.js";
 import { getValidatedTag } from "./tag.js";
-import { queryTabGroups } from "../common/tabGroups";
+import { queryTabGroups, isEnabledTabGroups } from "../common/tabGroups";
 import { compressDataUrl } from "../common/compressDataUrl";
 
 const logDir = "background/save";
-
-const isEnabledTabGroups = browserInfo().name == "Chrome" && browserInfo().version >= 89;
 
 export async function saveCurrentSession(name, tag, property) {
   log.log(logDir, "saveCurrentSession()", name, tag, property);
@@ -80,14 +78,21 @@ export async function loadCurrentSession(name, tag, property) {
     session.windowsInfo[i] = window;
   }
 
-  if (isEnabledTabGroups && getSettings("saveTabGroups")) {
+  if (isEnabledTabGroups && getSettings("saveTabGroupsV2")) {
     // ポップアップやPWAにはタブ自体が存在しないので、normalタイプのウィンドウのみクエリする
-    const filteredWindows = Object.values(session.windowsInfo).filter(window => window.type === "normal");
-    const tabGroups = await Promise.all(filteredWindows.map(window => queryTabGroups({
-      windowId: window.id,
-    })));
-    const filteredTabGroups = tabGroups.flat().filter(tabGroup =>
-      Object.keys(session.windows).includes(String(tabGroup.windowId)));
+    const filteredWindows = Object.values(session.windowsInfo).filter(
+      window => window.type === "normal"
+    );
+    const tabGroups = await Promise.all(
+      filteredWindows.map(window =>
+        queryTabGroups({
+          windowId: window.id
+        })
+      )
+    );
+    const filteredTabGroups = tabGroups
+      .flat()
+      .filter(tabGroup => Object.keys(session.windows).includes(String(tabGroup.windowId)));
     if (filteredTabGroups.length > 0) session.tabGroups = filteredTabGroups;
   }
 
@@ -105,7 +110,7 @@ async function sendMessage(message, options = {}) {
       message: message,
       ...options
     })
-    .catch(() => { });
+    .catch(() => {});
 }
 
 export async function saveSession(session, isSendResponce = true, saveBySync = false) {
@@ -161,7 +166,7 @@ export async function updateSession(
 
 export async function renameSession(id, name) {
   log.log(logDir, "renameSession()", id, name);
-  let session = await Sessions.get(id).catch(() => { });
+  let session = await Sessions.get(id).catch(() => {});
   if (session == undefined) return;
   session.name = name.trim();
   return await updateSession(session);
