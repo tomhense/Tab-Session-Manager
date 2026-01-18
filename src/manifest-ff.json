@@ -6,7 +6,7 @@
   "default_locale": "en",
   "browser_specific_settings": {
     "gecko": {
-      "id": "Tab-Session-Manager@sienori"
+      "id": "Tab-Session-Manager@tomhense"
     }
   },
   "permissions": [
@@ -18,10 +18,7 @@
     "downloads",
     "alarms"
   ],
-  "optional_permissions": [
-    "https://www.googleapis.com/*",
-    "*://*/*"
-  ],
+  "optional_permissions": ["https://www.googleapis.com/*", "*://*/*"],
   "options_ui": {
     "page": "options/index.html",
     "open_in_tab": true
