@@ -15,9 +15,17 @@ const getFileUrl = (baseUrl, fileId) => {
   return `${baseUrl}${encodeURIComponent(fileId)}.json`;
 };
 
+const getIndexUrl = baseUrl => {
+  return `${baseUrl}${indexFileName}`;
+};
+
 const normalizeMetadata = file => {
   const appProperties = file.appProperties || {};
-  const tag = Array.isArray(appProperties.tag) ? appProperties.tag : (appProperties.tag ? appProperties.tag.split(",") : []);
+  const tag = Array.isArray(appProperties.tag)
+    ? appProperties.tag
+    : appProperties.tag
+      ? appProperties.tag.split(",")
+      : [];
   const lastEditedTime = appProperties.lastEditedTime || 0;
   return {
     ...file,
@@ -29,28 +37,58 @@ const normalizeMetadata = file => {
   };
 };
 
-const readIndex = async (baseUrl, headers) => {
-  const url = `${baseUrl}${indexFileName}`;
-  const response = await fetch(url, { headers, method: "GET" });
-
-  if (response.status === 404) {
-    await writeIndex(baseUrl, headers, []);
-    return [];
+const parseDirectoryListing = text => {
+  const hrefs = [];
+  const hrefPattern = /<(?:\w+:)?href>(.*?)<\/(?:\w+:)?href>/gis;
+  let match;
+  while ((match = hrefPattern.exec(text)) !== null) {
+    hrefs.push(match[1]);
   }
+  return hrefs;
+};
+
+const isSessionFileName = fileName => {
+  return fileName.endsWith(".json") && fileName !== indexFileName;
+};
+
+const getFileNameFromHref = (baseUrl, href) => {
+  let url;
+  try {
+    url = new URL(href, baseUrl);
+  } catch (e) {
+    return "";
+  }
+
+  const basePath = new URL(baseUrl).pathname;
+  if (!url.pathname.startsWith(basePath)) return "";
+
+  const relativePath = url.pathname.slice(basePath.length);
+  try {
+    return decodeURIComponent(relativePath);
+  } catch (e) {
+    return "";
+  }
+};
+
+const listDirectoryHrefs = async (baseUrl, headers) => {
+  const response = await fetch(baseUrl, {
+    method: "PROPFIND",
+    headers: { ...headers, Depth: "1" }
+  });
+
   if (response.status === 401 || response.status === 403) {
     throw buildError("unauthorized", "WebDAV authorization failed");
   }
   if (!response.ok) {
-    throw buildError("unreachable", `Failed to read WebDAV index (${response.status})`);
+    throw buildError("unreachable", `Failed to list WebDAV directory (${response.status})`);
   }
 
-  const result = await response.json();
-  const files = Array.isArray(result.files) ? result.files : [];
-  return files.map(normalizeMetadata);
+  const text = await response.text();
+  return parseDirectoryListing(text);
 };
 
 const writeIndex = async (baseUrl, headers, files) => {
-  const url = `${baseUrl}${indexFileName}`;
+  const url = getIndexUrl(baseUrl);
   const body = JSON.stringify({ files, updatedAt: Date.now() });
   const response = await fetch(url, {
     method: "PUT",
@@ -66,10 +104,95 @@ const writeIndex = async (baseUrl, headers, files) => {
   }
 };
 
+const readIndexCache = async (baseUrl, headers) => {
+  const url = getIndexUrl(baseUrl);
+  const response = await fetch(url, { headers, method: "GET" });
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
+  }
+  if (!response.ok) {
+    throw buildError("unreachable", `Failed to read WebDAV index (${response.status})`);
+  }
+
+  const result = await response.json();
+  const files = Array.isArray(result.files) ? result.files : [];
+  return files.map(normalizeMetadata);
+};
+
+const syncIndexCache = async (baseUrl, headers, files) => {
+  try {
+    await writeIndex(baseUrl, headers, files);
+  } catch (e) {
+    log.warn(logDir, "syncIndexCache()", e);
+  }
+};
+
+const readSessionFile = async (baseUrl, headers, fileName) => {
+  const fileId = fileName.replace(/\.json$/, "");
+  const url = getFileUrl(baseUrl, fileId);
+  const response = await fetch(url, { headers, method: "GET" });
+
+  if (response.status === 401 || response.status === 403) {
+    throw buildError("unauthorized", "WebDAV authorization failed");
+  }
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw buildError("unreachable", `Failed to read WebDAV session (${response.status})`);
+  }
+
+  const result = await response.json();
+  return normalizeMetadata({
+    id: result.id || fileId,
+    name: result.name || fileId,
+    appProperties: {
+      id: result.id || fileId,
+      name: result.name || fileId,
+      date: result.date || 0,
+      lastEditedTime: result.lastEditedTime || 0,
+      tag: result.tag || [],
+      tabsNumber: result.tabsNumber || 0,
+      windowsNumber: result.windowsNumber || 0
+    }
+  });
+};
+
+const rebuildIndexFromDirectory = async (baseUrl, headers) => {
+  const hrefs = await listDirectoryHrefs(baseUrl, headers);
+  const fileNames = hrefs
+    .map(href => getFileNameFromHref(baseUrl, href))
+    .filter(Boolean)
+    .filter(isSessionFileName);
+  const files = [];
+  for (const fileName of fileNames) {
+    try {
+      const file = await readSessionFile(baseUrl, headers, fileName);
+      if (file) files.push(file);
+    } catch (e) {
+      log.warn(logDir, "rebuildIndexFromDirectory()", fileName, e);
+    }
+  }
+  if (hrefs.length === 0) {
+    const cachedFiles = await readIndexCache(baseUrl, headers).catch(e => {
+      log.warn(logDir, "rebuildIndexFromDirectory() readIndexCache", e);
+      return null;
+    });
+    if (cachedFiles) return cachedFiles;
+    throw buildError("unreachable", "Failed to parse WebDAV directory listing");
+  }
+  await syncIndexCache(baseUrl, headers, files);
+  return files;
+};
+
 export const listFiles = async () => {
   log.log(logDir, "listFiles()");
   const { baseUrl, headers } = await getWebdavClient();
-  const files = await readIndex(baseUrl, headers);
+  const files = await rebuildIndexFromDirectory(baseUrl, headers);
   log.log(logDir, "=>listFiles()", files);
   return files;
 };
@@ -106,9 +229,9 @@ export const uploadSession = async session => {
   }
 
   const metadata = buildMetadata(session);
-  const files = await readIndex(baseUrl, headers);
+  const files = await rebuildIndexFromDirectory(baseUrl, headers);
   const filteredFiles = files.filter(file => file.id !== metadata.id && file.name !== metadata.name);
-  await writeIndex(baseUrl, headers, filteredFiles.concat(metadata));
+  await syncIndexCache(baseUrl, headers, filteredFiles.concat(normalizeMetadata(metadata)));
 };
 
 export const downloadFile = async fileId => {
@@ -150,7 +273,7 @@ export const deleteFile = async fileId => {
     throw buildError("delete_failed", `Failed to delete session (${response.status})`);
   }
 
-  const files = await readIndex(baseUrl, headers);
+  const files = await rebuildIndexFromDirectory(baseUrl, headers);
   const filteredFiles = files.filter(file => file.id !== fileId && file.name !== fileId);
-  await writeIndex(baseUrl, headers, filteredFiles);
+  await syncIndexCache(baseUrl, headers, filteredFiles);
 };
