@@ -2,39 +2,16 @@ import React from "react";
 import browser from "webextension-polyfill";
 import log from "loglevel";
 import openUrl from "../actions/openUrl";
-import { getSettings } from "src/settings/settings";
 import DonationMessage from "./DonationMessage";
 import { sendUndoMessage, sendRedoMessage } from "../actions/controlSessions";
 import UndoIcon from "../icons/undo.svg";
 import RedoIcon from "../icons/redo.svg";
 import HeartIcon from "../icons/heart.svg";
-import CloudSyncIcon from "../icons/cloudSync.svg";
 import ExpandIcon from "../icons/expand.svg";
 import SettingsIcon from "../icons/settings.svg";
 import "../styles/Header.scss";
 
 const logDir = "popup/components/Header";
-
-const SyncStatus = props => {
-  const { status, progress, total } = props.syncStatus;
-
-  const statusLabels = {
-    none: "",
-    pending: `${browser.i18n.getMessage("syncingLabel")}...`,
-    download: `${browser.i18n.getMessage("downloadingLabel")}...`,
-    upload: `${browser.i18n.getMessage("uploadingLabel")}...`,
-    delete: `${browser.i18n.getMessage("deletingLabel")}...`,
-    complete: browser.i18n.getMessage("syncCompletedLabel"),
-    signInRequired: browser.i18n.getMessage("signInRequiredLabel")
-  };
-  const shouldShowProgress = status === "download" || status === "upload" || status === "delete";
-
-  return (
-    <div className={`syncStatus ${status}`}>
-      <span>{`${statusLabels[status]} ${shouldShowProgress ? `(${progress}/${total})` : ""}`}</span>
-    </div>
-  );
-};
 
 const openSettings = () => {
   log.info(logDir, "openSettings()");
@@ -50,26 +27,16 @@ const openSessionListInTab = () => {
 };
 
 export default props => {
-  const { openModal, syncStatus, needsSync, undoStatus } = props;
+  const { openModal, undoStatus } = props;
 
   const handleHeartClick = () => {
     openModal(browser.i18n.getMessage("donationLabel"), <DonationMessage />);
   };
 
-  const handleSyncClick = async () => {
-    await browser.runtime.sendMessage({
-      message: "syncCloud"
-    });
-  };
-
-  const shouldShowCloudSync = getSettings("signedInEmail");
-  const syncError = syncStatus.status === "signInRequired";
-
   return (
     <div id="header">
       <div className="title">Tab Session Manager</div>
       <div className="rightButtons">
-        {shouldShowCloudSync && <SyncStatus syncStatus={syncStatus} />}
         <button
           className={`undoButton ${undoStatus.undoCount == 0 ? "disable" : ""}`}
           onClick={sendUndoMessage}
@@ -87,18 +54,6 @@ export default props => {
           <div className="count">{undoStatus.redoCount > 0 && undoStatus.redoCount}</div>
         </button>
         <div className="separation" />
-        {shouldShowCloudSync && (
-          <button
-            className={"cloudSyncButton"}
-            onClick={handleSyncClick}
-            title={browser.i18n.getMessage("cloudSyncLabel")}
-          >
-            <CloudSyncIcon />
-            {(needsSync || syncError) && (
-              <div className={`syncBadge ${syncError ? "syncError" : ""}`}>!</div>
-            )}
-          </button>
-        )}
         <button
           className="heartButton"
           onClick={handleHeartClick}

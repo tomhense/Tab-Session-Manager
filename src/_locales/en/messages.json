@@ -509,51 +509,6 @@
   "truncateTitleCaptionLabel": {
     "message": "If the session name in the session list extends over more than one line, it is truncated on one line and displayed."
   },
-  "cloudSyncLabel": {
-    "message": "Cloud sync"
-  },
-  "enabledCloudSyncLabel": {
-    "message": "Enable cloud sync (Beta)"
-  },
-  "enabledCloudSyncCaptionLabel": {
-    "message": "Save sessions to Google Drive™ and sync with other computers."
-  },
-  "syncingLabel": {
-    "message": "Syncing"
-  },
-  "downloadingLabel": {
-    "message": "Downloading"
-  },
-  "uploadingLabel": {
-    "message": "Uploading"
-  },
-  "deletingLabel": {
-    "message": "Deleting"
-  },
-  "syncCompletedLabel": {
-    "message": "Sync completed."
-  },
-  "signInRequiredLabel": {
-    "message": "Requires sign in for cloud sync."
-  },
-  "signInLabel": {
-    "message": "Sign in"
-  },
-  "signOutLabel": {
-    "message": "Sign out"
-  },
-  "enabledAutoSyncLabel": {
-    "message": "Automatically sync"
-  },
-  "enabledAutoSyncCaptionLabel": {
-    "message": "Execute cloud sync when the browser is launched and when the session is saved."
-  },
-  "includesAutoSaveToSyncLabel": {
-    "message": "Sync auto save sessions"
-  },
-  "includesAutoSaveToSyncCaptionLabel": {
-    "message": "Upload / download auto save sessions in cloud sync."
-  },
   "popupLabel": {
     "message": "Popup"
   },

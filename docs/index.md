@@ -38,19 +38,11 @@ A tool for compressing sessions of Tab Session Manager
 **[Save Tab Groups for Tab Session Manager](https://chrome.google.com/webstore/detail/aghdiknflpelpkepifoplhodcnfildao)**  
 Additional extension for saving tab groups in Tab Session Manager for Chrome
 
-## Translation
-
-You can contribute by translating Tab Session Manager on **[Crowdin](https://crowdin.com/project/tab-session-manager)**.
-
 ## Developing
 
 1. Clone the repository `git clone https://github.com/sienori/Tab-Session-Manager`  
-2. Create the file `src/credentials.js`  
-  ```src/credentials.js
-  export const clientId = "xxx"
-  ```
-3. Run `npm install`
-4. Run `npm run watch-dev`
+2. Run `npm install`
+3. Run `npm run watch-dev`
 
 ### Load the extension in Chrome
 

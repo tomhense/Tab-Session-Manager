@@ -1,17 +1,24 @@
-import Sessions from "./sessions";
+import browser from "webextension-polyfill";
 import log from "loglevel";
 
 const logDir = "background/sessions";
+const syncChunkPrefix = "tabSessionManagerSessionsChunk_";
+const syncChunkSize = 7000;
 
 let DB;
-export default {
-  init: () => {
-    log.log(logDir, "init()");
-    // NOTE: ChromeのService Workerからは呼び出せないが、unlimitedStorage権限があるため削除されることはない
-    if (navigator.storage.persist) navigator.storage.persist();
+let syncState = {
+  deletedAllAt: 0,
+  deletedSessions: {}
+};
+let syncTimer;
+let isSyncing = false;
+let isSyncSuspended = false;
+
+const openDatabase = () =>
+  new Promise((resolve, reject) => {
     const request = indexedDB.open("sessions", 1);
 
-    request.onupgradeneeded = e => {
+    request.onupgradeneeded = () => {
       const db = request.result;
       const store = db.createObjectStore("sessions", {
         keyPath: "id"
@@ -25,146 +32,366 @@ export default {
       store.createIndex("sessionStartTime", "sessionStartTime");
     };
 
-    return new Promise(resolve => {
-      request.onsuccess = e => {
-        DB = request.result;
-        log.log(logDir, "=>init()", e);
-        resolve(e);
-      };
-      request.onerror = e => {
-        log.error(logDir, "init()", e);
-      };
+    request.onsuccess = () => {
+      DB = request.result;
+      resolve();
+    };
+    request.onerror = e => {
+      reject(e);
+    };
+  });
+
+const readAllLocalSessions = (needKeys = null) => {
+  const db = DB;
+  const transaction = db.transaction("sessions", "readonly");
+  const store = transaction.objectStore("sessions");
+  const request = store.openCursor();
+
+  let sessions = [];
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        let session = {};
+        if (needKeys == null) {
+          session = cursor.value;
+        } else {
+          for (const key of needKeys) {
+            session[key] = cursor.value[key];
+          }
+        }
+        sessions.push(session);
+        cursor.continue();
+      } else {
+        resolve(sessions);
+      }
+    };
+    request.onerror = () => {
+      reject(request);
+    };
+  });
+};
+
+const readLocalSession = id => {
+  const db = DB;
+  const transaction = db.transaction("sessions", "readonly");
+  const store = transaction.objectStore("sessions");
+  const request = store.get(id);
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      if (request.result) resolve(request.result);
+      else reject(request);
+    };
+    request.onerror = () => {
+      reject(request);
+    };
+  });
+};
+
+const putLocalSession = session => {
+  const db = DB;
+  const transaction = db.transaction("sessions", "readwrite");
+  const store = transaction.objectStore("sessions");
+  const request = store.put(session);
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve();
+    request.onerror = e => reject(e.target);
+  });
+};
+
+const deleteLocalSession = id => {
+  const db = DB;
+  const transaction = db.transaction("sessions", "readwrite");
+  const store = transaction.objectStore("sessions");
+  const request = store.delete(id);
+
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = e => reject(e.target);
+  });
+};
+
+const deleteLocalDatabase = async () => {
+  if (DB) DB.close();
+  await new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase("sessions");
+    request.onsuccess = () => resolve();
+    request.onerror = e => reject(e);
+  });
+  await openDatabase();
+};
+
+const shouldSyncSession = session => {
+  return !!session && !session.tag.includes("temp");
+};
+
+const isDeletedBySyncState = session => {
+  const deletedAt = Math.max(
+    syncState.deletedAllAt || 0,
+    syncState.deletedSessions?.[session.id] || 0
+  );
+  return deletedAt > session.lastEditedTime;
+};
+
+const splitIntoChunks = value => {
+  const chunks = [];
+  for (let index = 0; index < value.length; index += syncChunkSize) {
+    chunks.push(value.slice(index, index + syncChunkSize));
+  }
+  return chunks;
+};
+
+const getSyncChunkKeys = storage =>
+  Object.keys(storage)
+    .filter(key => key.startsWith(syncChunkPrefix))
+    .sort((a, b) => Number(a.slice(syncChunkPrefix.length)) - Number(b.slice(syncChunkPrefix.length)));
+
+const readSyncState = async () => {
+  const storage = await browser.storage.sync.get(null);
+  const chunkKeys = getSyncChunkKeys(storage);
+  if (chunkKeys.length === 0) {
+    return {
+      deletedAllAt: 0,
+      deletedSessions: {},
+      sessions: []
+    };
+  }
+
+  const payload = chunkKeys.map(key => storage[key]).join("");
+  try {
+    const parsed = JSON.parse(payload);
+    return {
+      deletedAllAt: parsed.deletedAllAt || 0,
+      deletedSessions: parsed.deletedSessions || {},
+      sessions: parsed.sessions || []
+    };
+  } catch (e) {
+    log.error(logDir, "readSyncState()", e);
+    return {
+      deletedAllAt: 0,
+      deletedSessions: {},
+      sessions: []
+    };
+  }
+};
+
+const writeSyncState = async state => {
+  const payload = JSON.stringify(state);
+  const chunks = splitIntoChunks(payload);
+  const storage = await browser.storage.sync.get(null);
+  const existingKeys = getSyncChunkKeys(storage);
+  const setValue = {};
+
+  chunks.forEach((chunk, index) => {
+    setValue[`${syncChunkPrefix}${index}`] = chunk;
+  });
+
+  const nextKeys = new Set(Object.keys(setValue));
+  const removeKeys = existingKeys.filter(key => !nextKeys.has(key));
+
+  if (Object.keys(setValue).length > 0) await browser.storage.sync.set(setValue);
+  if (removeKeys.length > 0) await browser.storage.sync.remove(removeKeys);
+};
+
+const mergeState = remoteState => {
+  const deletedAllAt = Math.max(syncState.deletedAllAt || 0, remoteState.deletedAllAt || 0);
+  const deletedSessions = {
+    ...(syncState.deletedSessions || {}),
+    ...(remoteState.deletedSessions || {})
+  };
+
+  for (const [id, deletedAt] of Object.entries(remoteState.deletedSessions || {})) {
+    if ((syncState.deletedSessions || {})[id] > deletedAt) {
+      deletedSessions[id] = syncState.deletedSessions[id];
+    }
+  }
+
+  return {
+    deletedAllAt,
+    deletedSessions,
+    sessions: remoteState.sessions || []
+  };
+};
+
+const mergeSessions = (localSessions, remoteState) => {
+  const effectiveState = mergeState(remoteState);
+  const remoteSessions = (effectiveState.sessions || []).filter(shouldSyncSession);
+  const localSyncableSessions = localSessions.filter(shouldSyncSession);
+  const localOtherSessions = localSessions.filter(session => !shouldSyncSession(session));
+
+  const merged = new Map();
+  for (const session of localSyncableSessions) {
+    const deletedAt = Math.max(
+      effectiveState.deletedAllAt || 0,
+      effectiveState.deletedSessions?.[session.id] || 0
+    );
+    if (deletedAt > session.lastEditedTime) continue;
+    merged.set(session.id, session);
+  }
+
+  for (const session of remoteSessions) {
+    const deletedAt = Math.max(
+      effectiveState.deletedAllAt || 0,
+      effectiveState.deletedSessions?.[session.id] || 0
+    );
+    if (deletedAt > session.lastEditedTime) continue;
+
+    const current = merged.get(session.id);
+    if (!current || current.lastEditedTime < session.lastEditedTime) {
+      merged.set(session.id, session);
+    }
+  }
+
+  return localOtherSessions.concat(Array.from(merged.values()));
+};
+
+const sessionsEqual = (left, right) => {
+  if (left.length !== right.length) return false;
+  const sortById = sessions => [...sessions].sort((a, b) => a.id.localeCompare(b.id));
+  const leftSorted = sortById(left);
+  const rightSorted = sortById(right);
+
+  return leftSorted.every((session, index) => {
+    const other = rightSorted[index];
+    return session.id === other.id && session.lastEditedTime === other.lastEditedTime;
+  });
+};
+
+const scheduleSync = () => {
+  if (isSyncSuspended) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncStorage().catch(e => {
+      log.error(logDir, "scheduleSync()", e);
     });
+  }, 1000);
+};
+
+const syncStorage = async () => {
+  if (isSyncSuspended) return;
+  if (isSyncing) {
+    scheduleSync();
+    return;
+  }
+  isSyncing = true;
+  try {
+    const localSessions = await readAllLocalSessions();
+    const syncableSessions = localSessions.filter(session => shouldSyncSession(session) && !isDeletedBySyncState(session));
+    const nextState = {
+      deletedAllAt: syncState.deletedAllAt || 0,
+      deletedSessions: syncState.deletedSessions || {},
+      sessions: syncableSessions
+    };
+    const currentState = await readSyncState();
+    if (JSON.stringify(nextState) === JSON.stringify(currentState)) return;
+    await writeSyncState(nextState);
+  } catch (e) {
+    log.error(logDir, "syncStorage()", e);
+  } finally {
+    isSyncing = false;
+  }
+};
+
+const restoreFromSyncStorage = async () => {
+  try {
+    const remoteState = await readSyncState();
+    const localSessions = await readAllLocalSessions();
+    const mergedSessions = mergeSessions(localSessions, remoteState);
+
+    if (!sessionsEqual(localSessions, mergedSessions)) {
+      isSyncSuspended = true;
+      try {
+        await deleteLocalDatabase();
+        for (const session of mergedSessions) {
+          await putLocalSession(session);
+        }
+      } finally {
+        isSyncSuspended = false;
+      }
+    }
+
+    syncState = mergeState(remoteState);
+    await syncStorage();
+  } catch (e) {
+    log.error(logDir, "restoreFromSyncStorage()", e);
+  }
+};
+
+const SessionStore = {
+  init: async (options = {}) => {
+    log.log(logDir, "init()");
+    if (navigator.storage.persist) navigator.storage.persist();
+    await openDatabase();
+    if (options.loadSync !== false) await restoreFromSyncStorage();
   },
 
   DBUpdate: async () => {
     log.log(logDir, "DBUpdate()");
     let sessions;
     try {
-      sessions = await Session.getAll();
-      await Session.deleteAll();
+      sessions = await SessionStore.getAll();
+      await SessionStore.deleteAll(false);
     } catch (e) {
       log.error(logDir, "DBUpdate()", e);
       return;
     }
 
     for (let session of sessions) {
-      await Session.put(session).catch(e => {
+      await SessionStore.put(session, false).catch(e => {
         log.error(logDir, "DBUpdate()", e);
       });
     }
   },
 
-  put: session => {
+  put: async (session, shouldSync = true) => {
     log.log(logDir, "put()", session);
-    const db = DB;
-    const transaction = db.transaction("sessions", "readwrite");
-    const store = transaction.objectStore("sessions");
-    const request = store.put(session);
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        log.log(logDir, "=>put()", "success");
-        resolve();
-      };
-      request.onerror = e => {
-        log.error(logDir, "put()", e.target);
-        reject(e.target);
-      };
-    });
+    await putLocalSession(session);
+    if (shouldSync && !isSyncSuspended) {
+      if (shouldSyncSession(session)) {
+        delete syncState.deletedSessions[session.id];
+      }
+      scheduleSync();
+    }
   },
 
-  delete: id => {
+  delete: async (id, shouldSync = true) => {
     log.log(logDir, "delete()", id);
-    const db = DB;
-    const transaction = db.transaction("sessions", "readwrite");
-    const store = transaction.objectStore("sessions");
-    const request = store.delete(id);
-
-    return new Promise((resolve, reject) => {
-      transaction.oncomplete = () => {
-        log.log(logDir, "=>delete()", "complete");
-        resolve();
-      };
-      transaction.onerror = e => {
-        log.error(logDir, "delete()", e.target);
-        reject(e.target);
-      };
-    });
+    const session = await readLocalSession(id).catch(() => {});
+    await deleteLocalSession(id);
+    if (shouldSync && !isSyncSuspended && session && shouldSyncSession(session)) {
+      syncState.deletedSessions[id] = Date.now();
+      scheduleSync();
+    }
   },
 
-  deleteAll: () => {
+  deleteAll: async (shouldSync = true) => {
     log.log(logDir, "deleteAll()");
-    DB.close("sessions");
-
-    const request = indexedDB.deleteDatabase("sessions");
-
-    return new Promise(resolve => {
-      request.onsuccess = () => {
-        log.log(logDir, "=>deleteAll()", "success");
-        resolve(Sessions.init());
-      };
-      request.onerror = e => {
-        log.error(logDir, "deleteAll()", e);
-        reject(e);
-      };
-    });
+    await deleteLocalDatabase();
+    if (shouldSync && !isSyncSuspended) {
+      syncState.deletedAllAt = Date.now();
+      syncState.deletedSessions = {};
+      scheduleSync();
+    }
   },
 
-  get: id => {
+  get: async id => {
     log.log(logDir, "get()", id);
-    const db = DB;
-    const transaction = db.transaction("sessions", "readonly");
-    const store = transaction.objectStore("sessions");
-    const request = store.get(id);
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        if (request.result) {
-          log.log(logDir, "=>get()", request.result);
-          resolve(request.result);
-        } else reject(request);
-      };
-      request.onerror = e => {
-        log.error(logDir, "get()", e);
-        reject(request);
-      };
-    });
+    try {
+      const session = await readLocalSession(id);
+      log.log(logDir, "=>get()", session);
+      return session;
+    } catch (e) {
+      return Promise.reject(e);
+    }
   },
 
-  getAll: (needKeys = null) => {
+  getAll: async (needKeys = null) => {
     log.log(logDir, "getAll()", needKeys);
-    const db = DB;
-    const transaction = db.transaction("sessions", "readonly");
-    const store = transaction.objectStore("sessions");
-    const request = store.openCursor();
-
-    let sessions = [];
-    return new Promise((resolve, reject) => {
-      request.onsuccess = e => {
-        const cursor = request.result;
-        if (cursor) {
-          let session = {};
-          if (needKeys == null) {
-            session = cursor.value;
-          } else {
-            for (let i of needKeys) {
-              session[i] = cursor.value[i];
-            }
-          }
-
-          sessions.push(session);
-          cursor.continue();
-        } else {
-          log.log(logDir, "=>getAll()", sessions);
-          resolve(sessions);
-        }
-      };
-      request.onerror = e => {
-        log.error(logDir, "getAll()", e);
-        reject(request);
-      };
-    });
+    const sessions = await readAllLocalSessions(needKeys);
+    log.log(logDir, "=>getAll()", sessions);
+    return sessions;
   },
 
   getAllWithStream: (sendResponse, needKeys, count) => {
@@ -176,7 +403,7 @@ export default {
 
     let sessions = [];
 
-    request.onsuccess = e => {
+    request.onsuccess = () => {
       const cursor = request.result;
       if (cursor) {
         let session = {};
@@ -204,7 +431,7 @@ export default {
     };
   },
 
-  search: (index, key) => {
+  search: async (index, key) => {
     log.log(logDir, "search()", index, key);
     const db = DB;
     const transaction = db.transaction("sessions", "readonly");
@@ -213,7 +440,7 @@ export default {
 
     let sessions = [];
     return new Promise(resolve => {
-      request.onsuccess = e => {
+      request.onsuccess = () => {
         const cursor = request.result;
         if (cursor) {
           sessions.push(cursor.value);
@@ -228,5 +455,14 @@ export default {
         resolve();
       };
     });
+  },
+
+  handleSyncStorageChange: async (changes, areaName) => {
+    if (areaName !== "sync") return;
+    if (!Object.keys(changes).some(key => key.startsWith(syncChunkPrefix))) return;
+    if (isSyncSuspended || isSyncing) return;
+    await restoreFromSyncStorage();
   }
 };
+
+export default SessionStore;

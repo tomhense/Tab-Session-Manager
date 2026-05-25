@@ -18,7 +18,7 @@ The TSM is owned and operated by [Sienori](https://github.com/sienori) - a devel
 
 You can use the TSM to save open windows and tabs.
 Session data includes page title, URL, access date, tab order, etc.  
-**Session data is stored only on local storage and never sent to an external server** unless you have enabled the "Cloud sync" function.
+**Session data is stored only on local storage and never sent to an external server** unless the browser's own sync feature copies it to another device.
 
 ### Setting data
 
@@ -29,18 +29,9 @@ You can change the settings on settings page of the TSM to customize the TSM beh
 
 The TSM uses external services in the following cases:
 
-### When using the "Cloud sync" function
+### When using browser sync
 
-If you enable "Cloud sync" function, you can sync session data between different computers using Google Drive.  
-In that case,
-- TSM saves Google login information (email address) on local storage.
-- TSM saves session data in the Google Drive App Folder. This data cannot be accessed by other apps or us.
-
-TSM uses Google APIs in accordance with Google API policies.  
-[Google API User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)
-
-Please refer to the following link for Google's privacy policy.  
-[Google Privacy Policy](https://policies.google.com/privacy)
+If browser sync is enabled in your browser profile, the browser may copy the extension's session data to your other devices.
 
 ### When using the "Import URL list" function
 

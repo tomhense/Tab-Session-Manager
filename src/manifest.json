@@ -9,11 +9,9 @@
     "unlimitedStorage",
     "tabs",
     "downloads",
-    "identity",
     "alarms",
     "offscreen"
   ],
-  "optional_host_permissions": ["https://www.googleapis.com/*"],
   "optional_permissions": ["tabGroups"],
   "options_ui": {
     "page": "options/index.html",

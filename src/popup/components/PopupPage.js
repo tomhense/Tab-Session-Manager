@@ -55,12 +55,6 @@ export default class PopupPage extends Component {
         buttonLabel: "",
         onClick: () => {}
       },
-      syncStatus: {
-        status: "complete",
-        progress: 0,
-        total: 0
-      },
-      needsSync: false,
       undoStatus: {
         undoCount: 0,
         redoCount: 0
@@ -165,27 +159,6 @@ export default class PopupPage extends Component {
     }
   };
 
-  calcNeedsSync = sessions => {
-    const shouldShowCloudSync = getSettings("signedInEmail");
-    const lastSyncTime = getSettings("lastSyncTime");
-    const removedQueue = getSettings("removedQueue");
-    const includesAutoSaveToSync = getSettings("includesAutoSaveToSync");
-    if (!shouldShowCloudSync) return false;
-
-    const shouldDelete = removedQueue.length > 0;
-    const shouldUpload = sessions
-      .filter(session => !session.tag.includes("temp"))
-      .filter(
-        session =>
-          includesAutoSaveToSync ||
-          (!session.tag.includes("regular") &&
-            !session.tag.includes("winClose") &&
-            !session.tag.includes("browserExit"))
-      )
-      .some(session => session.lastEditedTime > lastSyncTime);
-    return shouldDelete || shouldUpload;
-  };
-
   updateTagList = sessions => {
     const reservedTags = ["regular", "winClose", "browserExit", "temp", "_startup", "_tracking"];
     const allTags = sessions
@@ -206,8 +179,6 @@ export default class PopupPage extends Component {
       case "deleteSession":
       case "deleteAll":
         return this.changeSessions(request);
-      case "updateSyncStatus":
-        return this.handleUpdateSyncStatus(request);
       case "responseAllSessions":
         return this.handleResponseAllSessions(request);
       case "updateUndoStatus":
@@ -227,14 +198,8 @@ export default class PopupPage extends Component {
 
     if (request.isEnd) {
       this.changeFilterValue(this.firstFilterValue);
-      const needsSync = this.calcNeedsSync(this.state.sessions);
-      const syncStatus = await browser.runtime.sendMessage({ message: "getSyncStatus" });
       this.updateTagList(this.state.sessions);
-      this.setState({
-        isInitSessions: true,
-        needsSync: needsSync,
-        syncStatus: syncStatus
-      });
+      this.setState({ isInitSessions: true });
 
       const searchInfo = await browser.runtime.sendMessage({ message: "getsearchInfo" });
       this.setState({ searchInfo: searchInfo });
@@ -246,14 +211,12 @@ export default class PopupPage extends Component {
     let sessions;
     let searchInfo;
     let selectedSession = this.state.selectedSession;
-    let needsSync = true;
 
     switch (request.message) {
       case "saveSession": {
         const newSession = request.session;
         sessions = this.state.sessions.concat(newSession);
         searchInfo = this.state.searchInfo.concat(makeSearchInfo(newSession));
-        needsSync = !request.saveBySync;
         this.updateTagList([newSession]);
         break;
       }
@@ -273,7 +236,6 @@ export default class PopupPage extends Component {
           sessions.splice(sessionIndex, 1, newSession);
           searchInfo.splice(infoIndex, 1, newSearchInfo);
         }
-        needsSync = !request.saveBySync;
         this.updateTagList([newSession]);
         break;
       }
@@ -301,14 +263,8 @@ export default class PopupPage extends Component {
     this.setState({
       sessions: sessions,
       searchInfo: searchInfo,
-      selectedSession: selectedSession,
-      needsSync: needsSync
+      selectedSession: selectedSession
     });
-  };
-
-  handleUpdateSyncStatus = request => {
-    if (request.syncStatus.status == "pending") this.setState({ needsSync: false });
-    this.setState({ syncStatus: request.syncStatus });
   };
 
   handleUpdateUndoStatus = request => {
@@ -545,8 +501,6 @@ export default class PopupPage extends Component {
         <Header
           openModal={this.openModal}
           openNotification={this.openNotification}
-          syncStatus={this.state.syncStatus}
-          needsSync={this.state.needsSync}
           undoStatus={this.state.undoStatus}
         />
         <div id="contents">

@@ -8,6 +8,10 @@ let currentSettings = {};
 export const initSettings = async () => {
   const response = await browser.storage.local.get("Settings");
   currentSettings = response.Settings || {};
+  const knownSettingsIds = new Set(getSettingsIds());
+  currentSettings = Object.fromEntries(
+    Object.entries(currentSettings).filter(([key]) => knownSettingsIds.has(key))
+  );
   let shouldSave = false;
 
   const pushSettings = element => {
