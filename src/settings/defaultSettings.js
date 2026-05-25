@@ -442,7 +442,7 @@ export default [
             captions: [""],
             type: "number",
             min: 300,
-            max: 800,
+            max: 1600,
             placeholder: 700,
             default: 700
           },
@@ -452,7 +452,7 @@ export default [
             captions: [""],
             type: "number",
             min: 200,
-            max: 600,
+            max: 1200,
             placeholder: 500,
             default: 500
           },
