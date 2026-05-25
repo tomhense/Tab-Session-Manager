@@ -1,9 +1,11 @@
 import browser from "webextension-polyfill";
+import pako from "pako";
 import log from "loglevel";
 
 const logDir = "background/sessions";
 const syncChunkPrefix = "tabSessionManagerSessionsChunk_";
-const syncChunkSize = 7000;
+const syncChunkSize = 6000;
+const syncPayloadPrefix = "TSM1:";
 
 let DB;
 let syncState = {
@@ -127,6 +129,25 @@ const shouldSyncSession = session => {
   return !!session && !session.tag.includes("temp");
 };
 
+const summarizeSession = session => {
+  const windows = Object.keys(session.windows || {}).length;
+  const tabs = Object.values(session.windows || {}).reduce((count, windowTabs) => {
+    return count + Object.keys(windowTabs || {}).length;
+  }, 0);
+  return {
+    id: session.id,
+    name: session.name,
+    windows,
+    tabs,
+    lastEditedTime: session.lastEditedTime,
+    tags: session.tag
+  };
+};
+
+const calcJsonSize = value => new Blob([JSON.stringify(value)], { type: "application/json" }).size;
+
+const calcTextSize = value => new Blob([value], { type: "text/plain" }).size;
+
 const isDeletedBySyncState = session => {
   const deletedAt = Math.max(
     syncState.deletedAllAt || 0,
@@ -141,6 +162,47 @@ const splitIntoChunks = value => {
     chunks.push(value.slice(index, index + syncChunkSize));
   }
   return chunks;
+};
+
+const encodeBase64 = bytes => {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index++) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
+};
+
+const decodeBase64 = value => {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+const encodeSyncPayload = state => {
+  const json = JSON.stringify(state);
+  const compressed = pako.deflate(json);
+  const payload = syncPayloadPrefix + encodeBase64(compressed);
+  log.info(logDir, "encodeSyncPayload()", {
+    stateSize: calcJsonSize(state),
+    jsonSize: calcTextSize(json),
+    compressedSize: compressed.byteLength,
+    payloadSize: calcTextSize(payload),
+    sessionCount: state.sessions?.length || 0,
+    deletedSessionCount: Object.keys(state.deletedSessions || {}).length,
+    deletedAllAt: state.deletedAllAt || 0
+  });
+  return payload;
+};
+
+const decodeSyncPayload = payload => {
+  if (payload.startsWith(syncPayloadPrefix)) {
+    const compressed = decodeBase64(payload.slice(syncPayloadPrefix.length));
+    return JSON.parse(pako.inflate(compressed, { to: "string" }));
+  }
+  return JSON.parse(payload);
 };
 
 const getSyncChunkKeys = storage =>
@@ -160,8 +222,21 @@ const readSyncState = async () => {
   }
 
   const payload = chunkKeys.map(key => storage[key]).join("");
+  log.info(logDir, "readSyncState()", {
+    chunkCount: chunkKeys.length,
+    payloadSize: calcTextSize(payload),
+    chunkSizes: chunkKeys.map(key => ({
+      key,
+      size: calcTextSize(storage[key] || "")
+    }))
+  });
   try {
-    const parsed = JSON.parse(payload);
+    const parsed = decodeSyncPayload(payload);
+    log.info(logDir, "readSyncState() parsed", {
+      sessionCount: parsed.sessions?.length || 0,
+      deletedSessionCount: Object.keys(parsed.deletedSessions || {}).length,
+      deletedAllAt: parsed.deletedAllAt || 0
+    });
     return {
       deletedAllAt: parsed.deletedAllAt || 0,
       deletedSessions: parsed.deletedSessions || {},
@@ -178,7 +253,7 @@ const readSyncState = async () => {
 };
 
 const writeSyncState = async state => {
-  const payload = JSON.stringify(state);
+  const payload = encodeSyncPayload(state);
   const chunks = splitIntoChunks(payload);
   const storage = await browser.storage.sync.get(null);
   const existingKeys = getSyncChunkKeys(storage);
@@ -190,6 +265,15 @@ const writeSyncState = async state => {
 
   const nextKeys = new Set(Object.keys(setValue));
   const removeKeys = existingKeys.filter(key => !nextKeys.has(key));
+
+  log.info(logDir, "writeSyncState()", {
+    chunkCount: chunks.length,
+    chunkSizes: chunks.map(chunk => calcTextSize(chunk)),
+    removeKeys,
+    sessionCount: state.sessions?.length || 0,
+    deletedSessionCount: Object.keys(state.deletedSessions || {}).length,
+    deletedAllAt: state.deletedAllAt || 0
+  });
 
   if (Object.keys(setValue).length > 0) await browser.storage.sync.set(setValue);
   if (removeKeys.length > 0) await browser.storage.sync.remove(removeKeys);
@@ -279,6 +363,11 @@ const syncStorage = async () => {
   try {
     const localSessions = await readAllLocalSessions();
     const syncableSessions = localSessions.filter(session => shouldSyncSession(session) && !isDeletedBySyncState(session));
+    log.info(logDir, "syncStorage()", {
+      localSessionCount: localSessions.length,
+      syncableSessionCount: syncableSessions.length,
+      localSessionSummaries: syncableSessions.map(summarizeSession)
+    });
     const nextState = {
       deletedAllAt: syncState.deletedAllAt || 0,
       deletedSessions: syncState.deletedSessions || {},
@@ -299,6 +388,13 @@ const restoreFromSyncStorage = async () => {
     const remoteState = await readSyncState();
     const localSessions = await readAllLocalSessions();
     const mergedSessions = mergeSessions(localSessions, remoteState);
+    log.info(logDir, "restoreFromSyncStorage()", {
+      localSessionCount: localSessions.length,
+      remoteSessionCount: remoteState.sessions?.length || 0,
+      mergedSessionCount: mergedSessions.length,
+      localSessionSummaries: localSessions.map(summarizeSession),
+      remoteSessionSummaries: (remoteState.sessions || []).map(summarizeSession)
+    });
 
     if (!sessionsEqual(localSessions, mergedSessions)) {
       isSyncSuspended = true;
