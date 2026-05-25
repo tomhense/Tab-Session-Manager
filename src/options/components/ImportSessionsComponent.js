@@ -35,6 +35,9 @@ const fileOpen = file => {
         if (isTSM(jsonFile)) {
           return resolve(parseSession(jsonFile));
         }
+        if (isSessionObject(jsonFile)) {
+          return resolve([normalizeLegacySession(jsonFile)]);
+        }
         if (isSessionBuddy(jsonFile)) {
           return resolve(convertSessionBuddy(jsonFile));
         }
@@ -70,7 +73,7 @@ const isArray = o => {
 const isTSM = file => {
   if (!isArray(file)) return false;
 
-  const correctKeys = ["windows", "tabsNumber", "name", "date", "tag", "sessionStartTime"];
+  const correctKeys = ["windows", "tabsNumber", "name", "date", "tag"];
   for (const session of file) {
     const sessionKeys = Object.keys(session);
     const isIncludes = value => {
@@ -81,34 +84,50 @@ const isTSM = file => {
   return true;
 };
 
-const parseSession = file => {
-  for (const session of file) {
-    //ver1.9.2以前のセッションのタグを配列に変更
-    if (!Array.isArray(session.tag)) {
-      session.tag = session.tag.split(" ");
-    }
-    //ver1.9.2以前のセッションにUUIDを追加 タグからauto, userを削除
-    if (!session["id"]) {
-      session["id"] = uuidv4();
+const normalizeLegacySession = session => {
+  const normalizedSession = { ...session };
 
-      session.tag = session.tag.filter(element => {
-        return !(element == "user" || element == "auto");
-      });
-    }
-    //windowsNumberを追加
-    if (session.windowsNumber === undefined) {
-      session.windowsNumber = Object.keys(session.windows).length;
-    }
-    //ver4.0.0以前のdateをunix msに変更
-    if (typeof session.date !== "number") {
-      session.date = moment(session.date).valueOf();
-    }
-    //ver6.0.0以前のセッションにlastEditedTimeを追加
-    if (session.lastEditedTime === undefined) {
-      session.lastEditedTime = session.date;
-    }
+  // ver1.9.2以前のセッションのタグを配列に変更
+  if (!Array.isArray(normalizedSession.tag)) {
+    normalizedSession.tag = normalizedSession.tag ? normalizedSession.tag.split(" ") : [];
   }
-  return file;
+  // ver1.9.2以前のセッションにUUIDを追加 タグからauto, userを削除
+  if (!normalizedSession.id) {
+    normalizedSession.id = uuidv4();
+
+    normalizedSession.tag = normalizedSession.tag.filter(element => {
+      return !(element == "user" || element == "auto");
+    });
+  }
+  // windowsNumberを追加
+  if (normalizedSession.windowsNumber === undefined) {
+    normalizedSession.windowsNumber = Object.keys(normalizedSession.windows || {}).length;
+  }
+  // ver4.0.0以前のdateをunix msに変更
+  if (typeof normalizedSession.date !== "number") {
+    normalizedSession.date = moment(normalizedSession.date).valueOf();
+  }
+  // ver6.0.0以前のセッションにlastEditedTimeを追加
+  if (normalizedSession.lastEditedTime === undefined) {
+    normalizedSession.lastEditedTime = normalizedSession.date;
+  }
+  // 古いTSM exportや旧Google Drive syncファイルにはsessionStartTimeが無いことがある
+  if (normalizedSession.sessionStartTime === undefined) {
+    normalizedSession.sessionStartTime = normalizedSession.date;
+  }
+
+  return normalizedSession;
+};
+
+const parseSession = file => {
+  return file.map(normalizeLegacySession);
+};
+
+const isSessionObject = file => {
+  if (file == null || typeof file !== "object" || isArray(file)) return false;
+  return ["windows", "tabsNumber", "name", "date", "tag"].every(key =>
+    Object.prototype.hasOwnProperty.call(file, key)
+  );
 };
 
 const isSessionBuddy = file => {
