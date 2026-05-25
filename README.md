@@ -35,6 +35,9 @@ A tool for compressing sessions created by Tab Session Manager
 ## Developing
 
 > Required: Node 24.13.0, npm 11.7.0
+> Current branch: `firefox-sync`
+
+> Note: the browser-sync experiment currently does not scale to full session data. `storage.sync` has a small quota, so syncing complete export/import-sized sessions will exceed it and fail for larger data sets.
 
 1. Clone the repository `git clone https://github.com/sienori/Tab-Session-Manager`
 2. Run `npm install`
