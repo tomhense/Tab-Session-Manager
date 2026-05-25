@@ -148,8 +148,8 @@ const readSessionFile = async (baseUrl, headers, fileName) => {
 
   const result = await response.json();
   return normalizeMetadata({
-    id: result.id || fileId,
-    name: result.name || fileId,
+    id: fileId,
+    name: fileId,
     appProperties: {
       id: result.id || fileId,
       name: result.name || fileId,
