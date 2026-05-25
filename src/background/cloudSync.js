@@ -117,7 +117,7 @@ export const syncCloud = async () => {
   updateSyncStatus(syncStatus.pending);
 
   try {
-    const files = await listFiles();
+    let files = await listFiles();
     const sessions = (await getSessions()).filter(session => !session.tag.includes("temp"));
     const removedQueue = getSettings("removedQueue") || [];
 
@@ -138,12 +138,12 @@ export const syncCloud = async () => {
 
     for (const [index, session] of shouldUploadSessions.entries()) {
       updateSyncStatus(syncStatus.upload, index + 1, shouldUploadSessions.length);
-      await uploadSession(session);
+      files = await uploadSession(session, files);
     }
 
     for (const [index, file] of shouldRemoveFiles.entries()) {
       updateSyncStatus(syncStatus.delete, index + 1, shouldRemoveFiles.length);
-      await deleteFile(file.id);
+      files = await deleteFile(file.id, files);
     }
 
     setSettings("lastSyncTime", currentTime);

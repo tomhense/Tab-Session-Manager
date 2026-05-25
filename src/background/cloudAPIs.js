@@ -212,7 +212,7 @@ const buildMetadata = session => ({
   mimeType: "application/json"
 });
 
-export const uploadSession = async session => {
+export const uploadSession = async (session, knownFiles = null) => {
   log.log(logDir, "uploadSession()", session);
   const { baseUrl, headers } = await getWebdavClient();
   const fileUrl = getFileUrl(baseUrl, session.id);
@@ -229,9 +229,11 @@ export const uploadSession = async session => {
   }
 
   const metadata = buildMetadata(session);
-  const files = await rebuildIndexFromDirectory(baseUrl, headers);
+  const files = Array.isArray(knownFiles) ? knownFiles : await rebuildIndexFromDirectory(baseUrl, headers);
   const filteredFiles = files.filter(file => file.id !== metadata.id && file.name !== metadata.name);
-  await syncIndexCache(baseUrl, headers, filteredFiles.concat(normalizeMetadata(metadata)));
+  const updatedFiles = filteredFiles.concat(normalizeMetadata(metadata));
+  await syncIndexCache(baseUrl, headers, updatedFiles);
+  return updatedFiles;
 };
 
 export const downloadFile = async fileId => {
@@ -260,7 +262,7 @@ export const deleteAllFiles = async () => {
   }
 };
 
-export const deleteFile = async fileId => {
+export const deleteFile = async (fileId, knownFiles = null) => {
   log.log(logDir, "deleteFiles()", fileId);
   const { baseUrl, headers } = await getWebdavClient();
   const url = getFileUrl(baseUrl, fileId);
@@ -273,7 +275,8 @@ export const deleteFile = async fileId => {
     throw buildError("delete_failed", `Failed to delete session (${response.status})`);
   }
 
-  const files = await rebuildIndexFromDirectory(baseUrl, headers);
+  const files = Array.isArray(knownFiles) ? knownFiles : await rebuildIndexFromDirectory(baseUrl, headers);
   const filteredFiles = files.filter(file => file.id !== fileId && file.name !== fileId);
   await syncIndexCache(baseUrl, headers, filteredFiles);
+  return filteredFiles;
 };
