@@ -68,8 +68,8 @@ const getCopyPlugins = (browserDir, outputDir = "dev", sourceDir = "src") => [
         to: path.resolve(__dirname, `${outputDir}/${browserDir}/icons`)
       },
       {
-        from: `${sourceDir}/_locales/en`,
-        to: path.resolve(__dirname, `${outputDir}/${browserDir}/_locales/en`)
+        from: `${sourceDir}/_locales`,
+        to: path.resolve(__dirname, `${outputDir}/${browserDir}/_locales`)
       },
       {
         from: `${sourceDir}/manifest.json`,
@@ -87,8 +87,8 @@ const getFirefoxCopyPlugins = (browserDir, outputDir = "dev", sourceDir = "src")
         to: path.resolve(__dirname, `${outputDir}/${browserDir}/icons`)
       },
       {
-        from: `${sourceDir}/_locales/en`,
-        to: path.resolve(__dirname, `${outputDir}/${browserDir}/_locales/en`)
+        from: `${sourceDir}/_locales`,
+        to: path.resolve(__dirname, `${outputDir}/${browserDir}/_locales`)
       },
       {
         from: `${sourceDir}/manifest-ff.json`,
