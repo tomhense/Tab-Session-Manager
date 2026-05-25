@@ -17,6 +17,6 @@ export default async function importSessions(importedSessions) {
     if (existsSameSession) continue;
 
     importedSession.lastEditedTime = Date.now();
-    saveSession(importedSession);
+    await saveSession(importedSession);
   }
 }

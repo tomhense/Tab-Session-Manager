@@ -4,6 +4,10 @@ import moment from "moment";
 import mozlz4a from "mozlz4a";
 import { v4 as uuidv4 } from "uuid";
 import OptionContainer from "./OptionContainer";
+import {
+  isTabSessionManagerExport,
+  normalizeTabSessionManagerSessions
+} from "./importSessionParsers";
 
 const fileOpen = file => {
   if (/(?:\.jsonlz4|\.baklz4)(-\d+)?$/.test(file.name.toLowerCase())) {
@@ -32,8 +36,8 @@ const fileOpen = file => {
         if (!isJSON(text)) return resolve();
 
         let jsonFile = JSON.parse(text);
-        if (isTSM(jsonFile)) {
-          return resolve(parseSession(jsonFile));
+        if (isTabSessionManagerExport(jsonFile)) {
+          return resolve(normalizeTabSessionManagerSessions(jsonFile));
         }
         if (isSessionBuddy(jsonFile)) {
           return resolve(convertSessionBuddy(jsonFile));
@@ -61,54 +65,6 @@ const isJSON = arg => {
   } catch (e) {
     return false;
   }
-};
-
-const isArray = o => {
-  return Object.prototype.toString.call(o) === "[object Array]";
-};
-
-const isTSM = file => {
-  if (!isArray(file)) return false;
-
-  const correctKeys = ["windows", "tabsNumber", "name", "date", "tag", "sessionStartTime"];
-  for (const session of file) {
-    const sessionKeys = Object.keys(session);
-    const isIncludes = value => {
-      return sessionKeys.includes(value);
-    };
-    if (!correctKeys.every(isIncludes)) return false;
-  }
-  return true;
-};
-
-const parseSession = file => {
-  for (const session of file) {
-    //ver1.9.2以前のセッションのタグを配列に変更
-    if (!Array.isArray(session.tag)) {
-      session.tag = session.tag.split(" ");
-    }
-    //ver1.9.2以前のセッションにUUIDを追加 タグからauto, userを削除
-    if (!session["id"]) {
-      session["id"] = uuidv4();
-
-      session.tag = session.tag.filter(element => {
-        return !(element == "user" || element == "auto");
-      });
-    }
-    //windowsNumberを追加
-    if (session.windowsNumber === undefined) {
-      session.windowsNumber = Object.keys(session.windows).length;
-    }
-    //ver4.0.0以前のdateをunix msに変更
-    if (typeof session.date !== "number") {
-      session.date = moment(session.date).valueOf();
-    }
-    //ver6.0.0以前のセッションにlastEditedTimeを追加
-    if (session.lastEditedTime === undefined) {
-      session.lastEditedTime = session.date;
-    }
-  }
-  return file;
 };
 
 const isSessionBuddy = file => {
