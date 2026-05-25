@@ -54,6 +54,10 @@ const getShouldUploadSessions = (files, sessions, lastSyncTime) => {
     );
   }
 
+  if (files.length === 0) {
+    return sessions;
+  }
+
   // アップロードするべきsession:
   // lastSyncedTime以降に編集されたsessionのうち filesに存在しない または filesに存在するものよりlastEditedTimeが新しい
   const shouldUploadSessions = sessions
@@ -127,6 +131,17 @@ export const syncCloud = async () => {
     const shouldRemoveFiles = getShouldRemoveFiles(files, sessions, removedQueue);
     const shouldDownloadFiles = getShouldDownloadFiles(files, sessions, shouldRemoveFiles);
     const shouldUploadSessions = getShouldUploadSessions(files, sessions, lastSyncTime);
+
+    log.debug(logDir, "syncCloud() plan", {
+      files: files.length,
+      sessions: sessions.length,
+      removedQueue: removedQueue.length,
+      lastSyncTime,
+      shouldRemoveFiles: shouldRemoveFiles.length,
+      shouldDownloadFiles: shouldDownloadFiles.length,
+      shouldUploadSessions: shouldUploadSessions.length,
+      includesAutoSaveToSync: getSettings("includesAutoSaveToSync")
+    });
 
     for (const [index, file] of shouldDownloadFiles.entries()) {
       updateSyncStatus(syncStatus.download, index + 1, shouldDownloadFiles.length);
