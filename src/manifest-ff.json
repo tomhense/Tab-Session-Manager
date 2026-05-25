@@ -6,7 +6,7 @@
   "default_locale": "en",
   "browser_specific_settings": {
     "gecko": {
-      "id": "Tab-Session-Manager@sienori"
+      "id": "Tab-Session-Manager@tomhense"
     }
   },
   "permissions": [
